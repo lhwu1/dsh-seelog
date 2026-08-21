@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { FlowNode, SessionFlowSnapshot } from '../shared/flow.ts'
 import { FlowScene } from './FlowScene.tsx'
-import { durationLabel, eventCount, kindLabel, layoutSnapshot, readSnapshots, storeSnapshot, type StoredSnapshot, type VisualNode } from './model.ts'
+import { durationLabel, eventCount, kindLabel, layoutSnapshot, type VisualNode } from './model.ts'
 import { describeNode, errorName, eventTypeName } from './semantic.ts'
 import { ensureStyles } from './styles.ts'
 
@@ -24,25 +24,17 @@ function detailFor(node: FlowNode): readonly [string, string | undefined][] {
   ].filter((entry): entry is [string, string] => entry[1] !== undefined)
 }
 
-/** Frozen, topology-aware map view mounted in the ordinary conversation tab ring. */
+/** On-demand, topology-aware map view mounted in the ordinary conversation tab ring. */
 export function SessionMapView({ sessionId }: ConvViewProps) {
-  const [snapshots, setSnapshots] = useState<readonly StoredSnapshot[]>(() => readSnapshots(String(sessionId)))
-  const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(snapshots[0]?.id ?? null)
+  const [snapshot, setSnapshot] = useState<SessionFlowSnapshot | null>(null)
   const [selectedNode, setSelectedNode] = useState<VisualNode | null>(null)
   const [eventDetail, setEventDetail] = useState<EventLogDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const refreshSequence = useRef(0)
   useEffect(() => { ensureStyles() }, [])
-  useEffect(() => {
-    const history = readSnapshots(String(sessionId))
-    setSnapshots(history)
-    setSelectedSnapshotId(history[0]?.id ?? null)
-    setSelectedNode(null)
-    setEventDetail(null)
-    setError(null)
-  }, [sessionId])
   useEffect(() => {
     if (selectedNode === null) {
       setEventDetail(null)
@@ -63,38 +55,49 @@ export function SessionMapView({ sessionId }: ConvViewProps) {
       .finally(() => { if (!cancelled) setDetailLoading(false) })
     return () => { cancelled = true }
   }, [selectedNode])
-  const selected = snapshots.find(item => item.id === selectedSnapshotId) ?? null
-  const layout = useMemo(() => selected === null ? null : layoutSnapshot(selected.snapshot), [selected])
-  const capture = useCallback(async (): Promise<void> => {
+  const layout = useMemo(() => snapshot === null ? null : layoutSnapshot(snapshot), [snapshot])
+  const refresh = useCallback(async (): Promise<void> => {
+    const sequence = refreshSequence.current + 1
+    refreshSequence.current = sequence
     setLoading(true)
     setError(null)
     try {
       const response = await fetch(`/dsh-seelog/snapshot?sessionId=${encodeURIComponent(String(sessionId))}`, { cache: 'no-store' })
-      if (!response.ok) throw new Error(`无法下载会话快照 (${String(response.status)})`)
-      const snapshot = await response.json() as SessionFlowSnapshot
-      const stored = storeSnapshot(snapshot)
-      const history = readSnapshots(String(sessionId))
-      setSnapshots(history)
-      setSelectedSnapshotId(stored.id)
+      if (!response.ok) throw new Error(`无法刷新会话图 (${String(response.status)})`)
+      const nextSnapshot = await response.json() as SessionFlowSnapshot
+      if (sequence !== refreshSequence.current) return
+      setSnapshot(nextSnapshot)
       setSelectedNode(null)
-    } catch (reason: unknown) { setError(reason instanceof Error ? reason.message : String(reason)) } finally { setLoading(false) }
+      setEventDetail(null)
+    } catch (reason: unknown) {
+      if (sequence === refreshSequence.current) setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      if (sequence === refreshSequence.current) setLoading(false)
+    }
   }, [sessionId])
+  useEffect(() => {
+    setSnapshot(null)
+    setSelectedNode(null)
+    setEventDetail(null)
+    setError(null)
+  }, [sessionId])
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
   const selectNode = useCallback((node: VisualNode): void => { setSelectedNode(node) }, [])
-  const displayedCount = selected === null ? 0 : eventCount(selected.snapshot)
+  const displayedCount = snapshot === null ? 0 : eventCount(snapshot)
   return <main className="seelogRoot">
     <header className="seelogHeader">
-      <div><p className="seelogEyebrow">会话地图 / 冻结快照</p><h1>会话执行图</h1><p className="seelogMeta">主执行线与并行子智能体轨道。图只在下载快照时更新。</p></div>
-      <div className="seelogActions"><button type="button" className="seelogPrimary" onClick={() => { void capture() }} disabled={loading}>{loading ? '正在下载...' : '下载并生成快照'}</button></div>
+      <div><p className="seelogEyebrow">会话地图 / 按需刷新</p><h1>会话执行图</h1><p className="seelogMeta">进入视图和结束横向拖动时刷新；其余时间保持当前图。</p></div>
     </header>
-    {selected !== null && <section className="seelogStats" aria-label="快照概览"><div><b>{String(selected.snapshot.sessions.reduce((total, session) => total + (session.sourceEventCount ?? session.nodes.length), 0))}</b><span>原始日志事件</span></div><div><b>{String(displayedCount)}</b><span>语义节点</span></div><div><b>{String(selected.snapshot.sessions.length)}</b><span>会话与子 Agent</span></div><div><b>+{String(selected.addedEvents)}</b><span>相对上次新增</span></div><div><b>{timeLabel(selected.capturedAt)}</b><span>捕获时间</span></div></section>}
+    {snapshot !== null && <section className="seelogStats" aria-label="会话图概览"><div><b>{String(snapshot.sessions.reduce((total, session) => total + (session.sourceEventCount ?? session.nodes.length), 0))}</b><span>原始日志事件</span></div><div><b>{String(displayedCount)}</b><span>语义节点</span></div><div><b>{String(snapshot.sessions.length)}</b><span>会话与子 Agent</span></div><div><b>{timeLabel(snapshot.capturedAt)}</b><span>刷新时间</span></div></section>}
+    {loading && snapshot !== null && <p className="seelogLoading">正在同步当前会话图...</p>}
     {error !== null && <p className="seelogError">{error}</p>}
-    {selected === null && !loading && <p className="seelogEmpty">还没有已下载的图。下载后将保留当前会话的冻结版本。</p>}
+    {snapshot === null && <p className="seelogEmpty">{loading ? '正在读取当前会话图...' : '暂无可显示的会话日志。'}</p>}
     {layout !== null && <section className="seelogLayout">
-      <div className="seelogMap"><FlowScene layout={layout} selectedId={selectedNode?.node.id ?? null} onSelect={selectNode} /></div>
-      <aside className="seelogSide"><h2>节点检查器</h2>{selectedNode === null ? <p className="seelogEmpty">点击画布节点或下方事件查看语义信息。</p> : <div className="seelogDetail"><b>{describeNode(selectedNode.node).title}</b><p>{describeNode(selectedNode.node).summary}</p>{detailFor(selectedNode.node).map(([label, value]) => <p key={label}>{label}<br /><b>{value}</b></p>)}{detailLoading && <p className="seelogLoading">正在读取完整原始日志...</p>}{detailError !== null && <p className="seelogError">{detailError}</p>}{eventDetail !== null && <details className="seelogRaw"><summary>{eventTypeName(eventDetail.target.type)} · 原始日志 #{String(eventDetail.target.seq)}</summary><pre>{JSON.stringify(eventDetail.target, null, 2)}</pre><p>相邻日志</p><ul>{eventDetail.context.map(event => <li key={event.seq}>{eventTypeName(event.type)} · seq {String(event.seq)}</li>)}</ul></details>}</div>}
-        <div className="seelogSnapshots"><h2>已下载的可视化图</h2>{snapshots.length === 0 ? <p className="seelogEmpty">暂无快照</p> : <ul>{snapshots.map(item => <li key={item.id}><button type="button" aria-pressed={item.id === selectedSnapshotId} onClick={() => { setSelectedSnapshotId(item.id); setSelectedNode(null) }}>{timeLabel(item.capturedAt)} · {String(eventCount(item.snapshot))} 事件 · +{String(item.addedEvents)}</button></li>)}</ul>}</div>
-      </aside>
+      <div className="seelogMap"><FlowScene layout={layout} selectedId={selectedNode?.node.id ?? null} onSelect={selectNode} onViewportDragEnd={refresh} /></div>
+      <aside className="seelogSide"><h2>节点检查器</h2>{selectedNode === null ? <p className="seelogEmpty">点击画布节点或标签查看语义信息。</p> : <div className="seelogDetail"><b>{describeNode(selectedNode.node).title}</b><p>{describeNode(selectedNode.node).summary}</p>{detailFor(selectedNode.node).map(([label, value]) => <p key={label}>{label}<br /><b>{value}</b></p>)}{detailLoading && <p className="seelogLoading">正在读取完整原始日志...</p>}{detailError !== null && <p className="seelogError">{detailError}</p>}{eventDetail !== null && <details className="seelogRaw"><summary>{eventTypeName(eventDetail.target.type)} · 原始日志 #{String(eventDetail.target.seq)}</summary><pre>{JSON.stringify(eventDetail.target, null, 2)}</pre><p>相邻日志</p><ul>{eventDetail.context.map(event => <li key={event.seq}>{eventTypeName(event.type)} · seq {String(event.seq)}</li>)}</ul></details>}</div>}</aside>
     </section>}
-    {selected?.snapshot.truncated === true && <p className="seelogNotice">会话数量已达到部署上限，图中未包含其余子会话。</p>}
+    {snapshot?.truncated === true && <p className="seelogNotice">会话数量已达到部署上限，图中未包含其余子会话。</p>}
   </main>
 }

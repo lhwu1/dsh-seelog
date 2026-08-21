@@ -139,43 +139,6 @@ export function durationLabel(node: FlowNode): string | undefined {
   return milliseconds < 1_000 ? `${String(milliseconds)} ms` : `${(milliseconds / 1_000).toFixed(1)} s`
 }
 
-/** Serializable cached capture, retained only in the browser. */
-export interface StoredSnapshot {
-  readonly id: string
-  readonly snapshot: SessionFlowSnapshot
-  readonly capturedAt: number
-  readonly addedEvents: number
-}
-
-const STORAGE_PREFIX = 'dsh-seelog:snapshots:'
-const MAX_STORED = 24
-
-function storageKey(sessionId: string): string { return `${STORAGE_PREFIX}${sessionId}` }
-
-/** Reads snapshot history for one root session from local browser storage. */
-export function readSnapshots(sessionId: string): readonly StoredSnapshot[] {
-  try {
-    const raw = window.localStorage.getItem(storageKey(sessionId))
-    if (raw === null) return []
-    const value: unknown = JSON.parse(raw)
-    return Array.isArray(value) ? value as readonly StoredSnapshot[] : []
-  } catch { return [] }
-}
-
-/** Stores a bounded frozen capture and reports its incremental event count. */
-export function storeSnapshot(snapshot: SessionFlowSnapshot): StoredSnapshot {
-  const prior = readSnapshots(snapshot.rootSessionId)
-  const previousCount = prior[0] === undefined ? 0 : eventCount(prior[0].snapshot)
-  const item: StoredSnapshot = {
-    id: `${String(snapshot.capturedAt)}-${Math.random().toString(36).slice(2, 8)}`,
-    snapshot,
-    capturedAt: snapshot.capturedAt,
-    addedEvents: Math.max(0, eventCount(snapshot) - previousCount),
-  }
-  try { window.localStorage.setItem(storageKey(snapshot.rootSessionId), JSON.stringify([item, ...prior].slice(0, MAX_STORED))) } catch { /* Storage is optional. */ }
-  return item
-}
-
 /** Counts the lightweight facts in a projection. */
 export function eventCount(snapshot: SessionFlowSnapshot): number {
   return snapshot.sessions.reduce((total, session) => total + session.nodes.length, 0)

@@ -7,6 +7,7 @@ interface Props {
   readonly layout: FlowLayout
   readonly selectedId: string | null
   readonly onSelect: (node: VisualNode) => void
+  readonly onViewportDragEnd: () => void
 }
 
 function colorFor(node: VisualNode): number {
@@ -168,7 +169,7 @@ function addChildLane(group: THREE.Group, targets: THREE.Object3D[], labelLayer:
 }
 
 /** Draws a horizontally navigable execution graph without rebuilding during panning. */
-export function FlowScene({ layout, selectedId, onSelect }: Props) {
+export function FlowScene({ layout, selectedId, onSelect, onViewportDragEnd }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const selectRef = useRef(onSelect)
   const viewportPanRef = useRef(0)
@@ -276,7 +277,10 @@ export function FlowScene({ layout, selectedId, onSelect }: Props) {
       const wasDrag = dragging?.moved === true
       dragging = null
       renderer.domElement.style.cursor = 'grab'
-      if (wasDrag) return
+      if (wasDrag) {
+        onViewportDragEnd()
+        return
+      }
       const rect = renderer.domElement.getBoundingClientRect()
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
@@ -303,7 +307,7 @@ export function FlowScene({ layout, selectedId, onSelect }: Props) {
       renderer.dispose()
       element.replaceChildren()
     }
-  }, [layout, selectedId])
+  }, [layout, selectedId, onViewportDragEnd])
 
   return <div className="seelogCanvas" aria-label="会话执行轨迹"><div className="seelogCanvasSurface" ref={host} /></div>
 }
