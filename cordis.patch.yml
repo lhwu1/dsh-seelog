@@ -1,0 +1,10 @@
+# Session Map is an out-of-tree bundle. It contributes only its own host route
+# and browser view; the DeepSeek Harness package tree remains untouched.
+- insert:
+    - id: dsh-seelog
+      name: dsh-seelog
+    - id: dsh-seelog-web
+      name: dsh-seelog/web
+      config:
+        maxSessions: 128
+        maxEventsPerSession: 20000

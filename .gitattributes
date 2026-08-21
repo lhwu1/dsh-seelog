@@ -1,0 +1,2 @@
+# The bundled Three.js client preserves whitespace in upstream documentation.
+lib/client.js -whitespace

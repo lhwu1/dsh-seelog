@@ -1,0 +1,1 @@
+{"version":3,"file":"index.mjs","names":[],"sources":["../../src/host/index.ts"],"sourcesContent":["/** Host loader entry for the Session Map browser bundle. */\n\n/** This entry exists so the Loader discovers the package's browser half. */\nexport function apply(): void {}\n"],"mappings":";;;AAGA,SAAgB,QAAc,CAAC"}
