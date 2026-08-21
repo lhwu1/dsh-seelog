@@ -89,7 +89,6 @@ export function SessionMapView({ sessionId }: ConvViewProps) {
       <div><p className="seelogEyebrow">会话地图 / 按需刷新</p><h1>会话执行图</h1><p className="seelogMeta">进入视图和结束横向拖动时刷新；其余时间保持当前图。</p></div>
     </header>
     {snapshot !== null && <section className="seelogStats" aria-label="会话图概览"><div><b>{String(snapshot.sessions.reduce((total, session) => total + (session.sourceEventCount ?? session.nodes.length), 0))}</b><span>原始日志事件</span></div><div><b>{String(displayedCount)}</b><span>语义节点</span></div><div><b>{String(snapshot.sessions.length)}</b><span>会话与子 Agent</span></div><div><b>{timeLabel(snapshot.capturedAt)}</b><span>刷新时间</span></div></section>}
-    {loading && snapshot !== null && <p className="seelogLoading">正在同步当前会话图...</p>}
     {error !== null && <p className="seelogError">{error}</p>}
     {snapshot === null && <p className="seelogEmpty">{loading ? '正在读取当前会话图...' : '暂无可显示的会话日志。'}</p>}
     {layout !== null && <section className="seelogLayout">
