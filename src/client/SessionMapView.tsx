@@ -67,8 +67,6 @@ export function SessionMapView({ sessionId }: ConvViewProps) {
       const nextSnapshot = await response.json() as SessionFlowSnapshot
       if (sequence !== refreshSequence.current) return
       setSnapshot(nextSnapshot)
-      setSelectedNode(null)
-      setEventDetail(null)
     } catch (reason: unknown) {
       if (sequence === refreshSequence.current) setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
